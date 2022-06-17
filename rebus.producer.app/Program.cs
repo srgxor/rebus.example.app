@@ -16,6 +16,7 @@ const string connectionString = "Data Source=(localdb)\\ProjectModels; Initial C
 
 var services = new ServiceCollection();
 
+// https://github.com/glazkovalex/Rebus.Kafka
 var producerSetupConfig = new ProducerConfig
 {
     //BootstrapServers = , //will be set from the general parameter
@@ -33,8 +34,10 @@ producerSetupConfig.Set("queue.buffering.max.ms", "5");
 
 using var adminClient = new AdminClientBuilder(producerSetupConfig).Build();
 
-await adminClient.CreateTopicsAsync(new[]
+try
 {
+    await adminClient.CreateTopicsAsync(new[]
+    {
     new TopicSpecification
     {
         Name = "producer.input",
@@ -44,6 +47,11 @@ await adminClient.CreateTopicsAsync(new[]
         Name = "consumer.input",
     },
 });
+}
+catch
+{
+    Console.WriteLine("Topics already exist");
+}
 
 var producerConfig = new ProducerConfig
 {
@@ -100,6 +108,22 @@ services.AddRebus(
     })
     );
 
+// https://thecloudblog.net/post/building-reliable-kafka-producers-and-consumers-in-net/
+// https://dzone.com/articles/custom-partitioner-in-kafka-lets-take-quick-tour (Java but nicely explained)
+// Create message producer and add a custom partitioner
+using var producer = new ProducerBuilder<long, string>(producerConfig)
+    .SetKeySerializer(Serializers.Int64)
+    .SetValueSerializer(Serializers.Utf8)
+    .SetLogHandler((_, message) =>
+        Console.WriteLine($"Facility: {message.Facility}-{message.Level} Message: {message.Message}"))
+    .SetErrorHandler((_, e) => Console.WriteLine($"Error: {e.Reason}. Is Fatal: {e.IsFatal}"))
+    .SetPartitioner("consumer.input", (string topic, int partitionCount, ReadOnlySpan<byte> keyData, bool keyIsNull) =>
+    {
+        return Partition.Any;
+    })
+    .Build();
+
+
 
 using (var provider = services.BuildServiceProvider())
 {
@@ -132,6 +156,13 @@ using (var provider = services.BuildServiceProvider())
                 Message = "Testmessage"
             });
 
+            // Asynchronously send a message to a specific partition
+            //var deliveryReport = await producer.ProduceAsync("consumer.input",
+            //    new Message<long, string>
+            //    {
+            //        Key = DateTime.UtcNow.Ticks,
+            //        Value = "Hallo"
+            //    });
 
 
             // completing the scope will insert outgoing messages using the connection/transaction
@@ -175,7 +206,7 @@ public class CustomExtensionStep : IOutgoingStep
 {
     public async Task Process(OutgoingStepContext context, Func<Task> next)
     {
-        
+
         var message = context.Load<TestMessage>();
 
         Console.WriteLine("CustomExtensionStep");
