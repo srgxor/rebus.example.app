@@ -36,15 +36,21 @@ using var adminClient = new AdminClientBuilder(producerSetupConfig).Build();
 
 try
 {
+    await adminClient.DeleteTopicsAsync( new[] {
+        "producer.input", "consumer.input"
+    });
+
     await adminClient.CreateTopicsAsync(new[]
     {
     new TopicSpecification
     {
         Name = "producer.input",
+        NumPartitions = 2,
     },
     new TopicSpecification
     {
         Name = "consumer.input",
+        NumPartitions = 2,
     },
 });
 }
@@ -119,7 +125,7 @@ using var producer = new ProducerBuilder<long, string>(producerConfig)
     .SetErrorHandler((_, e) => Console.WriteLine($"Error: {e.Reason}. Is Fatal: {e.IsFatal}"))
     .SetPartitioner("consumer.input", (string topic, int partitionCount, ReadOnlySpan<byte> keyData, bool keyIsNull) =>
     {
-        return Partition.Any;
+        return 1;
     })
     .Build();
 
@@ -156,13 +162,6 @@ using (var provider = services.BuildServiceProvider())
                 Message = "Testmessage"
             });
 
-            // Asynchronously send a message to a specific partition
-            //var deliveryReport = await producer.ProduceAsync("consumer.input",
-            //    new Message<long, string>
-            //    {
-            //        Key = DateTime.UtcNow.Ticks,
-            //        Value = "Hallo"
-            //    });
 
 
             // completing the scope will insert outgoing messages using the connection/transaction
@@ -170,10 +169,20 @@ using (var provider = services.BuildServiceProvider())
 
             // commit all the things! 👍 
             await transaction.CommitAsync();
+
+
+            // Asynchronously send a message to a specific partition
+            //var deliveryReport = await producer.ProduceAsync("consumer.input",
+            //    new Message<long, string>
+            //    {
+            //        Key = DateTime.UtcNow.Ticks,
+            //        Value = "Hallo"
+            //    });
+            //producer.Flush();
         }
         catch (Exception exception)
         {
-            // log it or something
+            Console.WriteLine(exception.ToString());    
         }
 
 
